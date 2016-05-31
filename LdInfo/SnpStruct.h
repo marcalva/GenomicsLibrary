@@ -16,6 +16,7 @@ struct SnpLd : public SnpBase {
 public:
 	double r2;
 	double Dprime;
+	int distance;
 };
 
 #endif // __SNPSTRUCT__

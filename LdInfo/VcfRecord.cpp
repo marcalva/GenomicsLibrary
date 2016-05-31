@@ -10,6 +10,7 @@ using namespace std;
 
 void vcfRecord::parseLine(std::string s)
 {
+	clear();
 	std::vector<std::string> line_vector;
 	char delimiter = '\t';
 	parse(s, delimiter, line_vector);
@@ -53,4 +54,20 @@ void vcfRecord::parseLine(std::string s)
 		parse(line_vector.at(i), ':', sf.value);
 		samples.push_back(sf);
 	}
+}
+
+void vcfRecord::clear()
+{
+	chr.clear();
+	pos = -1;
+	id.clear();
+	ref.clear();
+	alt.clear();
+	qual.clear();
+	filter.clear();
+	info.key.clear();
+	info.value.clear();
+	info.flags.clear();
+	format.value.clear();
+	samples.clear();
 }

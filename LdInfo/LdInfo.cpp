@@ -6,7 +6,6 @@
 #include <iostream>
 #include <sstream>
 #include <unordered_set>
-#include <algorithm>
 #include "LdInfo.h"
 #include "VcfRecord.h"
 #include "ParseText.h"
@@ -28,7 +27,7 @@ LdInfo calcLd(const vcfRecord& r1, const vcfRecord& r2)
 	if ( r1.samples.size() != r2.samples.size() )
 	{
 		cerr << "These two SNPs hve differing numbers of samples:" << endl;
-		cerr << r1.id << " " << r2.id << endl;
+		cerr << r1.id << ": " << r1.samples.size() << " " << r2.id << ": " << r2.samples.size() << endl;
 		exit (EXIT_FAILURE);
 	}
 	
@@ -120,7 +119,11 @@ LdInfo calcLd(const vcfRecord& r1, const vcfRecord& r2)
 LinkageDisequilibrium::LinkageDisequilibrium(std::string vcfFileName) : _tVcf(vcfFileName) {}
 
 // TODO : Put error controls if SNPs or regions could not be set.
-void LinkageDisequilibrium::GetProxies(const SnpBase& s, std::list<SnpLd>* ld,  const float& minR2, const int& windowSize)
+void LinkageDisequilibrium::GetProxies(const SnpBase& s,
+		std::list<SnpLd>* ld,
+		const float& minR2,
+		const float& minDp,
+		const int& windowSize)
 {
 	ld->clear();
 	
@@ -133,6 +136,7 @@ void LinkageDisequilibrium::GetProxies(const SnpBase& s, std::list<SnpLd>* ld,  
 	vcfRecord proxySnp;
 	vector<vcfRecord> tVector;
 	
+	// Get ref snp VCF genotypes
 	if (_tVcf.setRegion(snpRegion))
 	{
 		while (_tVcf.getNextLine(tLine))
@@ -152,6 +156,7 @@ void LinkageDisequilibrium::GetProxies(const SnpBase& s, std::list<SnpLd>* ld,  
 		exit (EXIT_FAILURE);
 	}
 	
+	// Get proxy snps
 	if (_tVcf.setRegion(windowRegion))
 	{
 		while (_tVcf.getNextLine(tLine))
@@ -159,7 +164,7 @@ void LinkageDisequilibrium::GetProxies(const SnpBase& s, std::list<SnpLd>* ld,  
 			proxySnp.parseLine(tLine);
 			LdInfo l;
 			l = calcLd(refSnp, proxySnp);
-			if (l.r2 < minR2)
+			if (l.r2 < minR2 || l.Dprime < minDp)
 				continue;
 			SnpLd proxyLd;
 			proxyLd.chr = proxySnp.chr;
@@ -167,15 +172,113 @@ void LinkageDisequilibrium::GetProxies(const SnpBase& s, std::list<SnpLd>* ld,  
 			proxyLd.name = proxySnp.id;
 			proxyLd.r2 = l.r2;
 			proxyLd.Dprime = l.Dprime;
+			proxyLd.distance = proxySnp.pos - refSnp.pos;
 			ld->push_back(proxyLd);
 		}
 	}
 }
 
+
+// GetProxies for 2 SNPs
+void LinkageDisequilibrium::GetProxies(const SnpBase& s1,
+	const SnpBase& s2,
+	std::list<SnpLd>* ld,
+	const float& minR2,
+	const float& minDp,
+	const int& windowSize)
+{
+	ld->clear();
+	int beginRegion, endRegion;
+	if (s1.chr != s2.chr)
+		return;
+	if (s1.pos < s2.pos){
+		beginRegion = (s2.pos - 1) - windowSize;
+		endRegion = s1.pos+  windowSize;
+	}
+	else{
+		beginRegion = (s1.pos - 1) - windowSize;
+		endRegion = s2.pos + windowSize;
+	}
+	string s1Region = s1.chr + ":" + to_string(s1.pos - 1) + "-" + to_string(s1.pos);
+	string s2Region = s2.chr + ":" + to_string(s2.pos - 1) + "-" + to_string(s2.pos);
+	string windowRegion = s1.chr + ":" + to_string(beginRegion) + "-" + to_string(endRegion);
+	string tLine;
+	vcfRecord ref1Snp;
+	vcfRecord ref2Snp;
+	vcfRecord proxySnp;
+	vector<vcfRecord> tVector;
+	
+	// Get ref 1 snp VCF genotypes
+	if (_tVcf.setRegion(s1Region))
+	{
+		while (_tVcf.getNextLine(tLine))
+		{
+			ref1Snp.parseLine(tLine);
+			if (ref1Snp.id == s1.name)
+				break;
+		}
+		if (ref1Snp.id != s1.name){
+			cerr << "Could not find input SNP " << s1.name << "." << endl;
+			exit (EXIT_FAILURE);
+		}
+	}
+	else
+	{
+		cerr << "Could not set region from tabix-indexed VCF file. Check chromosomes and positions." << endl;
+		exit (EXIT_FAILURE);
+	}
+	// Get ref 2 snp VCF genotypes
+	if (_tVcf.setRegion(s2Region))
+	{
+		while (_tVcf.getNextLine(tLine))
+		{
+			ref2Snp.parseLine(tLine);
+			if (ref2Snp.id == s2.name)
+				break;
+		}
+		if (ref2Snp.id != s2.name){
+			cerr << "Could not find input SNP " << s2.name << "." << endl;
+			exit (EXIT_FAILURE);
+		}
+	}
+	else
+	{
+		cerr << "Could not set region from tabix-indexed VCF file. Check chromosomes and positions." << endl;
+		exit (EXIT_FAILURE);
+	}
+
+	// Get proxy snps
+	if (_tVcf.setRegion(windowRegion))
+	{
+		while (_tVcf.getNextLine(tLine))
+		{
+			proxySnp.parseLine(tLine);
+			LdInfo l1;
+			l1 = calcLd(ref1Snp, proxySnp);
+			if (l1.r2 < minR2 || l1.Dprime < minDp)
+				continue;
+			LdInfo l2;
+			l2 = calcLd(ref2Snp, proxySnp);
+			if (l2.r2 < minR2 || l2.Dprime < minDp)
+				continue;
+			SnpLd proxyLd;
+			proxyLd.chr = proxySnp.chr;
+			proxyLd.pos = proxySnp.pos;
+			proxyLd.name = proxySnp.id;
+			proxyLd.r2 = l1.r2;
+			proxyLd.Dprime = l1.Dprime;
+			proxyLd.distance = proxySnp.pos - ref1Snp.pos;
+			ld->push_back(proxyLd);
+		}
+	}
+}
+
+
 void LinkageDisequilibrium::GetProxies(const SnpBase& s, 
 	std::list<SnpLd>* ld,
 	const std::unordered_set<std::string>& restrL,
 	const float& minR2,
+	const float& minDp,
 	const int& windowSize)
 {
 	ld->clear();
@@ -204,7 +307,7 @@ void LinkageDisequilibrium::GetProxies(const SnpBase& s,
 	}
 	else
 	{
-		cerr << "Could not set region from tabix-indexed VCF file." << endl;
+		cerr << "Could not set region to find input SNP from tabix-indexed VCF file." << endl;
 		exit (EXIT_FAILURE);
 	}
 	
@@ -218,24 +321,34 @@ void LinkageDisequilibrium::GetProxies(const SnpBase& s,
 			{
 				LdInfo l;
 				l = calcLd(refSnp, proxySnp);
+				if (l.r2 < minR2 || l.Dprime < minDp)
+					continue;
 				SnpLd proxyLd;
 				proxyLd.chr = proxySnp.chr;
 				proxyLd.pos = proxySnp.pos;
 				proxyLd.name = proxySnp.id;
 				proxyLd.r2 = l.r2;
 				proxyLd.Dprime = l.Dprime;
-				if (l.r2 >= minR2)
-					ld->push_back(proxyLd);
+				proxyLd.distance = proxySnp.pos - refSnp.pos;
+				ld->push_back(proxyLd);
 				
 			}
 		}
+	}
+	else
+	{
+		cerr << "Could not set region for snp window from tabix-indexed VCF file." << endl;
+		exit (EXIT_FAILURE);
 	}
 }
 
 bool LinkageDisequilibrium::hasChr(std::string c)
 {
-	vector<string>::iterator sp;
-	sp = find(_tVcf.chroms.begin(), _tVcf.chroms.end(), c);
+	vector<string>::iterator sp =_tVcf.chroms.begin();
+	for (;sp != _tVcf.chroms.end(); ++sp){
+		if (*sp == c)
+			break;
+	}
 	if (sp == _tVcf.chroms.end())
 		return false;
 	else

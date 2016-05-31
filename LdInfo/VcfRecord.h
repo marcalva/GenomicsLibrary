@@ -44,6 +44,7 @@ struct vcfRecord{
 	formatField format;
 	std::vector<sampleField> samples;
 	void parseLine(std::string s); // Store VCF line from a string
+	void clear();
 };
 
 #endif // __VCFRECORD__
